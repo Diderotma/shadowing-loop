@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop de Shadowing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: player + controles à esquerda, lista de trechos à direita; empilha no celular */
+:root {
+  --bg: #eef1f0;
+  --panel: #ffffff;
+  --ink: #17211f;
+  --muted: #5c6b67;
+  --line: #d3dbd8;
+  --accent: #0f7a6c;
+  --accent-ink: #ffffff;
+  --mark: #e0902a;
+  --danger: #b63a2f;
+  --track: #dde4e2;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", Consolas, ui-monospace, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111716; --panel: #1a2220; --ink: #e6eeeb; --muted: #93a39e; --line: #2c3835;
+    --accent: #3cc2ae; --accent-ink: #062520; --mark: #f0a845; --danger: #ef7468; --track: #26302e;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 20px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; margin-bottom: 16px; }
+h1 { font: 700 26px/1.1 var(--f-display); margin: 0; letter-spacing: -0.01em; }
+h1 span { color: var(--accent); }
+h2 { font: 600 13px/1.2 var(--f-body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; }
+
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 12px; line-height: 1.2; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); padding: 4px 8px; }
+button.ghost:hover { color: var(--danger); }
+kbd { font: 600 11px var(--f-mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--muted); margin-left: 4px; }
+button.primary kbd, button.on kbd { color: inherit; border-color: currentColor; opacity: .8; }
+input[type=text], input[type=number], select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+
+.load { display: flex; gap: 8px; margin-bottom: 16px; }
+.load input { flex: 1; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+.stage { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.video { position: relative; aspect-ratio: 16 / 9; max-width: 100%; background: #000; }
+.video > div, .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
+.empty { position: absolute; inset: 0; display: grid; place-items: center; color: #b9c4c1; text-align: center; padding: 20px; }
+
+.timeline { position: relative; height: 34px; margin: 14px 16px 4px; cursor: pointer; }
+.timeline .bar { position: absolute; left: 0; right: 0; top: 14px; height: 6px; background: var(--track); border-radius: 3px; }
+.timeline .range { position: absolute; top: 10px; height: 14px; background: color-mix(in srgb, var(--mark) 35%, transparent); border-left: 3px solid var(--mark); border-right: 3px solid var(--mark); border-radius: 3px; }
+.timeline .head { position: absolute; top: 4px; width: 2px; height: 26px; background: var(--accent); transform: translateX(-1px); }
+.timeinfo { display: flex; justify-content: space-between; margin: 0 16px; font: 12px var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.controls { padding: 14px 16px 16px; display: grid; gap: 14px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.marks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 520px) { .marks { grid-template-columns: minmax(0, 1fr); } }
+.mark { border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 8px; }
+.mark label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.mark .row { flex-wrap: nowrap; }
+.mark .row input { width: 0; flex: 1 1 70px; font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: center; }
+.mark .row button { padding: 7px 9px; white-space: nowrap; flex: none; }
+.opts { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; font-size: 14px; color: var(--muted); }
+.opts label { display: flex; align-items: center; gap: 6px; }
+.opts input[type=number] { width: 64px; }
+.speed button { padding: 6px 9px; font: 13px var(--f-mono); }
+.counter { font: 13px var(--f-mono); color: var(--muted); }
+
+.side { display: grid; gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.save { display: grid; gap: 8px; }
+.clips { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.clip { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+.clip:hover { border-color: var(--accent); }
+.clip.active { border-color: var(--mark); box-shadow: inset 3px 0 0 var(--mark); }
+.clip .name { font-weight: 700; overflow-wrap: anywhere; }
+.clip .t { font: 12px var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.clip .note { grid-column: 1 / -1; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.videos { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.videos button { width: 100%; text-align: left; display: flex; justify-content: space-between; gap: 10px; border-color: transparent; }
+.videos button:hover { border-color: var(--line); }
+.videos button.current { border-color: var(--accent); }
+.videos .vt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.videos .n { font: 12px var(--f-mono); color: var(--muted); flex: none; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+.keys { font-size: 13px; color: var(--muted); display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; }
+.keys dt { text-align: right; }
+.keys dd { margin: 0; }
+
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: calc(100% - 32px); }
+.toast.show { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Loop de <span>Shadowing</span></h1>
+    <div class="tools">
+      <button id="btnLink" title="Gera um link com todos os seus trechos para abrir em outro computador">Copiar link de sincronização</button>
+      <button id="btnExport">Baixar backup</button>
+      <button id="btnImport">Importar backup</button>
+      <input id="fileImport" type="file" accept="application/json,.json" hidden>
+    </div>
+  </header>
+
+  <form class="load" id="loadForm">
+    <input id="url" type="text" placeholder="Cole o link do YouTube (ex.: https://www.youtube.com/watch?v=...)" autocomplete="off">
+    <button class="primary" type="submit">Abrir vídeo</button>
+  </form>
+
+  <div class="grid">
+    <section class="stage">
+      <div class="video">
+        <div id="player"></div>
+        <div class="empty" id="empty">Cole um link do YouTube acima para começar.</div>
+      </div>
+
+      <div class="timeline" id="timeline" title="Clique para pular para esse ponto">
+        <div class="bar"></div>
+        <div class="range" id="range" hidden></div>
+        <div class="head" id="head" style="left:0"></div>
+      </div>
+      <div class="timeinfo"><span id="cur">0:00.0</span><span id="dur">0:00</span></div>
+
+      <div class="controls">
+        <div class="marks">
+          <div class="mark">
+            <label for="inA">Início (A)</label>
+            <div class="row">
+              <button id="markA" class="primary">Marcar A<kbd>A</kbd></button>
+              <button data-nudge="a" data-d="-0.25" title="-0,25 s">−</button>
+              <input id="inA" type="text" value="0:00.0" aria-label="Tempo de início">
+              <button data-nudge="a" data-d="0.25" title="+0,25 s">+</button>
+            </div>
+          </div>
+          <div class="mark">
+            <label for="inB">Fim (B)</label>
+            <div class="row">
+              <button id="markB" class="primary">Marcar B<kbd>B</kbd></button>
+              <button data-nudge="b" data-d="-0.25" title="-0,25 s">−</button>
+              <input id="inB" type="text" value="" placeholder="—" aria-label="Tempo de fim">
+              <button data-nudge="b" data-d="0.25" title="+0,25 s">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <button id="btnPlayAB" class="primary">▶ Tocar trecho<kbd>R</kbd></button>
+          <button id="btnPlay">Play / Pause<kbd>Espaço</kbd></button>
+          <button id="btnLoop" class="on" aria-pressed="true">Repetir<kbd>L</kbd></button>
+          <span class="counter" id="counter"></span>
+        </div>
+
+        <div class="opts">
+          <div class="row speed" id="speed" role="group" aria-label="Velocidade">
+            <span>Velocidade</span>
+            <button data-rate="0.5">0.5×</button>
+            <button data-rate="0.75">0.75×</button>
+            <button data-rate="0.9">0.9×</button>
+            <button data-rate="1">1×</button>
+          </div>
+          <label title="Tempo de silêncio depois de cada repetição, para você repetir a frase">Pausa para repetir
+            <input id="gap" type="number" min="0" max="30" step="0.5" value="2"> s</label>
+          <label title="0 = infinito">Repetições
+            <input id="reps" type="number" min="0" max="99" step="1" value="0"></label>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="card">
+        <h2>Salvar trecho</h2>
+        <form class="save" id="saveForm">
+          <input id="clipName" type="text" placeholder="Nome (ex.: frase 3 — “I've been meaning to…”)" autocomplete="off">
+          <input id="clipNote" type="text" placeholder="Transcrição ou nota (opcional)" autocomplete="off">
+          <button class="primary" type="submit">Salvar A–B<kbd>S</kbd></button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2 id="clipsTitle">Trechos deste vídeo</h2>
+        <ul class="clips" id="clips"></ul>
+        <p class="hint" id="clipsEmpty">Nenhum trecho salvo ainda. Marque A e B e clique em “Salvar A–B”.</p>
+      </div>
+
+      <div class="card">
+        <h2>Meus vídeos</h2>
+        <ul class="videos" id="videos"></ul>
+        <p class="hint" id="videosEmpty">Os vídeos com trechos salvos aparecem aqui.</p>
+      </div>
+
+      <div class="card">
+        <h2>Atalhos</h2>
+        <dl class="keys">
+          <dt><kbd>Espaço</kbd></dt><dd>play / pause</dd>
+          <dt><kbd>A</kbd> <kbd>B</kbd></dt><dd>marcar início / fim no ponto atual</dd>
+          <dt><kbd>R</kbd></dt><dd>tocar o trecho do começo</dd>
+          <dt><kbd>L</kbd></dt><dd>liga/desliga repetição</dd>
+          <dt><kbd>S</kbd></dt><dd>salvar trecho</dd>
+          <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>voltar / avançar 2 s</dd>
+          <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>tocar o trecho salvo nº</dd>
+        </dl>
+      </div>
+    </aside>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const KEY = 'shadowing.v1';
+const $ = (id) => document.getElementById(id);
+
+// ---------- dados ----------
+function loadDB() {
+  try { const d = JSON.parse(localStorage.getItem(KEY)); if (d && d.videos) return d; } catch (e) {}
+  return { videos: {}, settings: { rate: 1, gap: 2, reps: 0, loop: true }, last: null };
+}
+let db = loadDB();
+function saveDB() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast('Não consegui salvar no navegador'); } }
+
+function mergeDB(other) {
+  let added = 0;
+  for (const [vid, v] of Object.entries(other.videos || {})) {
+    const mine = db.videos[vid] || (db.videos[vid] = { title: v.title || vid, clips: [] });
+    if (!mine.title || mine.title === vid) mine.title = v.title || vid;
+    for (const c of v.clips || []) {
+      if (!mine.clips.some(m => m.id === c.id || (Math.abs(m.start - c.start) < 0.05 && Math.abs(m.end - c.end) < 0.05))) {
+        mine.clips.push(c); added++;
+      }
+    }
+    mine.clips.sort((a, b) => a.start - b.start);
+  }
+  saveDB();
+  return added;
+}
+
+// ---------- tempo ----------
+function fmt(t, dec = true) {
+  if (t == null || isNaN(t)) return '';
+  t = Math.max(0, t);
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  const ss = dec ? s.toFixed(1).padStart(4, '0') : String(Math.floor(s)).padStart(2, '0');
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + ss;
+}
+function parseTime(str) {
+  str = String(str).trim().replace(',', '.');
+  if (!str) return null;
+  const parts = str.split(':').map(Number);
+  if (parts.some(isNaN)) return null;
+  return parts.reduce((acc, p) => acc * 60 + p, 0);
+}
+
+function parseYouTube(input) {
+  input = input.trim();
+  if (/^[\w-]{11}$/.test(input)) return { id: input, t: 0 };
+  try {
+    const u = new URL(input.startsWith('http') ? input : 'https://' + input);
+    let id = null;
+    if (u.hostname.includes('youtu.be')) id = u.pathname.slice(1, 12);
+    else if (u.searchParams.get('v')) id = u.searchParams.get('v');
+    else { const m = u.pathname.match(/\/(embed|shorts|live|v)\/([\w-]{11})/); if (m) id = m[2]; }
+    if (!id || !/^[\w-]{11}$/.test(id)) return null;
+    const tp = u.searchParams.get('t') || u.searchParams.get('start') || '0';
+    const tm = tp.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?/);
+    const t = tm ? (+tm[1] || 0) * 3600 + (+tm[2] || 0) * 60 + (+tm[3] || 0) : 0;
+    return { id, t };
+  } catch (e) { return null; }
+}
+
+// ---------- estado ----------
+const st = {
+  vid: null, a: 0, b: null, loop: db.settings.loop !== false,
+  rate: db.settings.rate || 1, gap: db.settings.gap ?? 2, reps: db.settings.reps || 0,
+  count: 0, waiting: false, playingAB: false, activeClip: null, gapTimer: null,
+};
+let player = null, ready = false, pendingVideo = null;
+
+// ---------- player do YouTube ----------
+window.onYouTubeIframeAPIReady = function () {
+  ready = true;
+  if (pendingVideo) { openVideo(pendingVideo.id, pendingVideo.t); pendingVideo = null; }
+};
+(function () { const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s); })();
+
+function openVideo(id, t = 0) {
+  if (!ready) { pendingVideo = { id, t }; return; }
+  clearGap();
+  st.vid = id; st.a = t || 0; st.b = null; st.count = 0; st.activeClip = null; st.playingAB = false;
+  db.last = id; saveDB();
+  $('empty').hidden = true;
+  if (!player) {
+    player = new YT.Player('player', {
+      videoId: id,
+      playerVars: { playsinline: 1, rel: 0, modestbranding: 1, start: Math.floor(t || 0), origin: location.origin },
+      events: {
+        onReady: () => { player.setPlaybackRate(st.rate); updateTitle(); },
+        onStateChange: (e) => { if (e.data === YT.PlayerState.PLAYING) updateTitle(); },
+        onError: (e) => toast('O YouTube não deixou tocar este vídeo aqui (erro ' + e.data + ').'),
+      },
+    });
+  } else {
+    player.loadVideoById({ videoId: id, startSeconds: t || 0 });
+    player.setPlaybackRate(st.rate);
+  }
+  renderAll();
+}
+
+function updateTitle() {
+  if (!player || !player.getVideoData) return;
+  const title = player.getVideoData().title;
+  if (title && db.videos[st.vid] && db.videos[st.vid].title !== title) {
+    db.videos[st.vid].title = title; saveDB(); renderVideos();
+  }
+  st.title = title;
+}
+
+const now = () => (player && player.getCurrentTime ? player.getCurrentTime() : 0);
+const dur = () => (player && player.getDuration ? player.getDuration() : 0);
+const isPlaying = () => player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING;
+
+function clearGap() { if (st.gapTimer) { clearTimeout(st.gapTimer); st.gapTimer = null; } st.waiting = false; }
+
+function playAB() {
+  if (!player) return;
+  clearGap();
+  st.count = 0; st.playingAB = true;
+  player.seekTo(st.a, true); player.playVideo();
+  renderCounter();
+}
+
+// laço principal: verifica se passou do fim do trecho
+setInterval(() => {
+  if (!player || !player.getCurrentTime) return;
+  const t = now(), d = dur();
+  $('cur').textContent = fmt(t);
+  $('dur').textContent = fmt(d, false);
+  if (d) $('head').style.left = (t / d * 100) + '%';
+  renderRange();
+
+  if (st.b == null || st.waiting || !isPlaying()) return;
+  if (!st.playingAB && !st.loop) return;
+  if (t >= st.b) {
+    st.count++;
+    renderCounter();
+    const done = !st.loop || (st.reps > 0 && st.count >= st.reps);
+    if (done) { player.pauseVideo(); player.seekTo(st.a, true); st.playingAB = false; renderCounter(); return; }
+    if (st.gap > 0) {
+      player.pauseVideo();
+      st.waiting = true;
+      $('counter').textContent = 'Sua vez… (' + st.count + (st.reps ? '/' + st.reps : '') + ')';
+      st.gapTimer = setTimeout(() => { st.waiting = false; st.gapTimer = null; player.seekTo(st.a, true); player.playVideo(); renderCounter(); }, st.gap * 1000);
+    } else {
+      player.seekTo(st.a, true);
+    }
+  }
+}, 40);
+
+// ---------- marcações ----------
+function setA(t) { st.a = Math.max(0, Math.round(t * 10) / 10); if (st.b != null && st.b <= st.a) st.b = null; st.activeClip = null; renderMarks(); }
+function setB(t) {
+  t = Math.round(t * 10) / 10;
+  if (t <= st.a) { toast('O fim (B) precisa ser depois do início (A)'); return; }
+  st.b = t; st.activeClip = null; renderMarks();
+}
+
+$('markA').onclick = () => { if (player) setA(now()); };
+$('markB').onclick = () => { if (player) setB(now()); };
+document.querySelectorAll('[data-nudge]').forEach(btn => btn.onclick = () => {
+  const d = +btn.dataset.d;
+  if (btn.dataset.nudge === 'a') { setA(st.a + d); if (player) player.seekTo(st.a, true); }
+  else if (st.b != null) { setB(st.b + d); if (player) player.seekTo(Math.max(st.a, st.b - 1.5), true); }
+});
+$('inA').onchange = () => { const t = parseTime($('inA').value); if (t != null) setA(t); else renderMarks(); };
+$('inB').onchange = () => { const t = parseTime($('inB').value); if (t != null) setB(t); else { st.b = null; renderMarks(); } };
+
+$('btnPlayAB').onclick = playAB;
+$('btnPlay').onclick = togglePlay;
+function togglePlay() {
+  if (!player) return;
+  if (st.waiting) { clearGap(); renderCounter(); return; }
+  isPlaying() ? player.pauseVideo() : player.playVideo();
+}
+$('btnLoop').onclick = toggleLoop;
+function toggleLoop() { st.loop = !st.loop; db.settings.loop = st.loop; saveDB(); renderOpts(); }
+
+$('speed').onclick = (e) => {
+  const r = e.target.closest('[data-rate]'); if (!r) return;
+  st.rate = +r.dataset.rate; db.settings.rate = st.rate; saveDB();
+  if (player && player.setPlaybackRate) player.setPlaybackRate(st.rate);
+  renderOpts();
+};
+$('gap').onchange = () => { st.gap = Math.max(0, +$('gap').value || 0); db.settings.gap = st.gap; saveDB(); };
+$('reps').onchange = () => { st.reps = Math.max(0, Math.floor(+$('reps').value || 0)); db.settings.reps = st.reps; saveDB(); };
+
+$('timeline').onclick = (e) => {
+  if (!player || !dur()) return;
+  const r = $('timeline').getBoundingClientRect();
+  player.seekTo((e.clientX - r.left) / r.width * dur(), true);
+};
+
+// ---------- salvar trechos ----------
+$('saveForm').onsubmit = (e) => { e.preventDefault(); saveClip(); };
+function saveClip() {
+  if (!st.vid) { toast('Abra um vídeo primeiro'); return; }
+  if (st.b == null) { toast('Marque o fim (B) antes de salvar'); return; }
+  const v = db.videos[st.vid] || (db.videos[st.vid] = { title: st.title || st.vid, clips: [] });
+  const name = $('clipName').value.trim() || 'Trecho ' + (v.clips.length + 1);
+  const clip = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, note: $('clipNote').value.trim(), start: st.a, end: st.b };
+  v.clips.push(clip);
+  v.clips.sort((x, y) => x.start - y.start);
+  st.activeClip = clip.id;
+  saveDB();
+  $('clipName').value = ''; $('clipNote').value = '';
+  renderClips(); renderVideos();
+  toast('Trecho salvo');
+}
+
+function selectClip(c, play = true) {
+  st.a = c.start; st.b = c.end; st.activeClip = c.id;
+  renderMarks(); renderClips();
+  if (play) playAB();
+}
+
+function deleteClip(id) {
+  const v = db.videos[st.vid]; if (!v) return;
+  v.clips = v.clips.filter(c => c.id !== id);
+  if (!v.clips.length) delete db.videos[st.vid];
+  saveDB(); renderClips(); renderVideos();
+}
+
+// ---------- render ----------
+function renderMarks() {
+  $('inA').value = fmt(st.a);
+  $('inB').value = st.b == null ? '' : fmt(st.b);
+  renderRange();
+}
+function renderRange() {
+  const d = dur(), el = $('range');
+  if (!d || st.b == null) { el.hidden = true; return; }
+  el.hidden = false;
+  el.style.left = (st.a / d * 100) + '%';
+  el.style.width = ((st.b - st.a) / d * 100) + '%';
+}
+function renderCounter() {
+  if (st.waiting) return;
+  $('counter').textContent = st.count ? 'Repetições: ' + st.count + (st.reps ? '/' + st.reps : '') : '';
+}
+function renderOpts() {
+  $('btnLoop').classList.toggle('on', st.loop);
+  $('btnLoop').setAttribute('aria-pressed', st.loop);
+  document.querySelectorAll('[data-rate]').forEach(b => b.classList.toggle('on', +b.dataset.rate === st.rate));
+  $('gap').value = st.gap; $('reps').value = st.reps;
+}
+function renderClips() {
+  const ul = $('clips'); ul.innerHTML = '';
+  const clips = (db.videos[st.vid] || {}).clips || [];
+  $('clipsEmpty').hidden = clips.length > 0;
+  clips.forEach((c, i) => {
+    const li = document.createElement('li');
+    li.className = 'clip' + (c.id === st.activeClip ? ' active' : '');
+    li.tabIndex = 0;
+    li.innerHTML = '<span class="name"></span><button class="ghost" title="Apagar trecho">✕</button><span class="t"></span>' + (c.note ? '<span class="note"></span>' : '');
+    li.querySelector('.name').textContent = (i < 9 ? (i + 1) + '. ' : '') + c.name;
+    li.querySelector('.t').textContent = fmt(c.start) + ' → ' + fmt(c.end) + '  (' + (c.end - c.start).toFixed(1) + ' s)';
+    if (c.note) li.querySelector('.note').textContent = c.note;
+    li.onclick = (e) => { if (e.target.closest('button')) return; selectClip(c); };
+    li.onkeydown = (e) => { if (e.key === 'Enter') selectClip(c); };
+    const del = li.querySelector('button');
+    del.onclick = () => {
+      if (del.dataset.armed) { deleteClip(c.id); return; }
+      del.dataset.armed = '1'; del.textContent = 'Apagar?'; del.style.color = 'var(--danger)';
+      setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = '✕'; del.style.color = ''; } }, 2500);
+    };
+    ul.appendChild(li);
+  });
+}
+function renderVideos() {
+  const ul = $('videos'); ul.innerHTML = '';
+  const entries = Object.entries(db.videos);
+  $('videosEmpty').hidden = entries.length > 0;
+  for (const [vid, v] of entries) {
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.className = vid === st.vid ? 'current' : '';
+    b.innerHTML = '<span class="vt"></span><span class="n"></span>';
+    b.querySelector('.vt').textContent = v.title || vid;
+    b.querySelector('.n').textContent = v.clips.length + (v.clips.length === 1 ? ' trecho' : ' trechos');
+    b.onclick = () => { $('url').value = 'https://youtu.be/' + vid; openVideo(vid, v.clips[0] ? v.clips[0].start : 0); if (v.clips[0]) selectClip(v.clips[0], false); };
+    li.appendChild(b); ul.appendChild(li);
+  }
+}
+function renderAll() { renderMarks(); renderOpts(); renderClips(); renderVideos(); renderCounter(); }
+
+// ---------- abrir vídeo ----------
+$('loadForm').onsubmit = (e) => {
+  e.preventDefault();
+  const p = parseYouTube($('url').value);
+  if (!p) { toast('Não reconheci esse link do YouTube'); return; }
+  openVideo(p.id, p.t);
+};
+
+// ---------- atalhos ----------
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); togglePlay(); }
+  else if (k === 'a') $('markA').click();
+  else if (k === 'b') $('markB').click();
+  else if (k === 'r') playAB();
+  else if (k === 'l') toggleLoop();
+  else if (k === 's') { e.preventDefault(); saveClip(); }
+  else if (k === 'arrowleft' && player) { e.preventDefault(); player.seekTo(Math.max(0, now() - 2), true); }
+  else if (k === 'arrowright' && player) { e.preventDefault(); player.seekTo(now() + 2, true); }
+  else if (/^[1-9]$/.test(k)) {
+    const c = ((db.videos[st.vid] || {}).clips || [])[+k - 1];
+    if (c) selectClip(c);
+  }
+});
+
+// ---------- sincronizar entre computadores ----------
+function b64encode(str) { return btoa(String.fromCharCode(...new TextEncoder().encode(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function b64decode(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); return new TextDecoder().decode(Uint8Array.from(atob(s), c => c.charCodeAt(0))); }
+
+$('btnLink').onclick = async () => {
+  if (!Object.keys(db.videos).length) { toast('Salve algum trecho primeiro'); return; }
+  const link = location.href.split('#')[0] + '#dados=' + b64encode(JSON.stringify({ videos: db.videos }));
+  try { await navigator.clipboard.writeText(link); toast('Link copiado. Abra ele no outro computador.'); }
+  catch (e) { window.prompt('Copie este link:', link); }
+};
+$('btnExport').onclick = () => {
+  const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'shadowing-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click(); URL.revokeObjectURL(a.href);
+};
+$('btnImport').onclick = () => $('fileImport').click();
+$('fileImport').onchange = async () => {
+  const f = $('fileImport').files[0]; if (!f) return;
+  try { const n = mergeDB(JSON.parse(await f.text())); toast(n + ' trecho(s) importado(s)'); renderAll(); }
+  catch (e) { toast('Arquivo inválido'); }
+  $('fileImport').value = '';
+};
+
+function importFromHash() {
+  const m = location.hash.match(/dados=([\w-]+)/);
+  if (!m) return;
+  try { const n = mergeDB(JSON.parse(b64decode(m[1]))); toast(n + ' trecho(s) sincronizado(s)'); }
+  catch (e) { toast('Link de sincronização inválido'); }
+  history.replaceState(null, '', location.pathname + location.search);
+}
+
+// ---------- toast ----------
+let toastTimer;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600); }
+
+// ---------- início ----------
+importFromHash();
+if (!db.last || !db.videos[db.last]) db.last = Object.keys(db.videos)[0] || db.last;
+renderAll();
+if (db.last) { $('url').value = 'https://youtu.be/' + db.last; openVideo(db.last, 0); }
+</script>
+</body>
+</html>
