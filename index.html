@@ -384,7 +384,8 @@ function setB(t) {
   st.b = t; st.activeClip = null; renderMarks();
 }
 
-$('markA').onclick = () => { if (player) setA(now()); };
+// marcar A começa um trecho novo: o B antigo some
+$('markA').onclick = () => { if (!player) return; clearGap(); st.b = null; st.count = 0; st.playingAB = false; setA(now()); renderClips(); renderCounter(); };
 $('markB').onclick = () => { if (player) setB(now()); };
 document.querySelectorAll('[data-nudge]').forEach(btn => btn.onclick = () => {
   const d = +btn.dataset.d;
