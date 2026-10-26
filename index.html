@@ -341,11 +341,14 @@ const isPlaying = () => player && player.getPlayerState && player.getPlayerState
 
 function clearGap() { if (st.gapTimer) { clearTimeout(st.gapTimer); st.gapTimer = null; } st.waiting = false; }
 
+// volta para o A; até o player confirmar o pulo, o laço não conta repetição
+function seekA() { st.seeking = true; player.seekTo(st.a, true); }
+
 function playAB() {
   if (!player) return;
   clearGap();
   st.count = 0; st.playingAB = true;
-  player.seekTo(st.a, true); player.playVideo();
+  seekA(); player.playVideo();
   renderCounter();
 }
 
@@ -358,20 +361,21 @@ setInterval(() => {
   if (d) $('head').style.left = (t / d * 100) + '%';
   renderRange();
 
+  if (st.seeking) { if (st.b == null || t < st.b - 0.05) st.seeking = false; else return; }
   if (st.b == null || st.waiting || !isPlaying()) return;
   if (!st.playingAB && !st.loop) return;
   if (t >= st.b) {
     st.count++;
     renderCounter();
     const done = !st.loop || (st.reps > 0 && st.count >= st.reps);
-    if (done) { player.pauseVideo(); player.seekTo(st.a, true); st.playingAB = false; renderCounter(); return; }
+    if (done) { player.pauseVideo(); seekA(); st.playingAB = false; renderCounter(); return; }
     if (st.gap > 0) {
       player.pauseVideo();
       st.waiting = true;
       $('counter').textContent = 'Sua vez… (' + st.count + (st.reps ? '/' + st.reps : '') + ')';
-      st.gapTimer = setTimeout(() => { st.waiting = false; st.gapTimer = null; player.seekTo(st.a, true); player.playVideo(); renderCounter(); }, st.gap * 1000);
+      st.gapTimer = setTimeout(() => { st.waiting = false; st.gapTimer = null; seekA(); player.playVideo(); renderCounter(); }, st.gap * 1000);
     } else {
-      player.seekTo(st.a, true);
+      seekA();
     }
   }
 }, 40);
@@ -433,6 +437,7 @@ function saveClip() {
   st.activeClip = clip.id;
   saveDB();
   $('clipName').value = ''; $('clipNote').value = '';
+  if (document.activeElement) document.activeElement.blur();
   renderClips(); renderVideos();
   toast('Trecho salvo');
 }
@@ -518,12 +523,20 @@ $('loadForm').onsubmit = (e) => {
   e.preventDefault();
   const p = parseYouTube($('url').value);
   if (!p) { toast('Não reconheci esse link do YouTube'); return; }
+  $('url').blur(); // libera o teclado para os atalhos
   openVideo(p.id, p.t);
 };
 
 // ---------- atalhos ----------
+// clicar no vídeo joga o teclado para dentro do player do YouTube; puxa de volta
+window.addEventListener('blur', () => setTimeout(() => {
+  const el = document.activeElement;
+  if (el && el.tagName === 'IFRAME') { el.blur(); window.focus(); }
+}, 0));
+
 document.addEventListener('keydown', (e) => {
-  if (e.target.matches('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === 'Escape' && e.target.matches && e.target.matches('input')) { e.target.blur(); return; }
+  if ((e.target.matches && e.target.matches('input, textarea, select')) || e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === ' ') { e.preventDefault(); togglePlay(); }
   else if (k === 'a') $('markA').click();
